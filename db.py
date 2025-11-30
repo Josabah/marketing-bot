@@ -38,6 +38,14 @@ CREATE TABLE IF NOT EXISTS submissions (
     created_at TEXT,
     staff_handled INTEGER DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS user_topics (
+    tg_user_id INTEGER PRIMARY KEY,
+    topic_id INTEGER,
+    topic_name TEXT,
+    created_at TEXT,
+    FOREIGN KEY (tg_user_id) REFERENCES users(tg_user_id)
+);
 """
 
 async def init_db():
@@ -119,3 +127,26 @@ async def save_submission(tg_user_id, file_ids, caption):
         cur = await db.execute("SELECT last_insert_rowid()")
         row = await cur.fetchone()
         return row[0]
+
+async def save_user_topic(tg_user_id, topic_id, topic_name):
+    """Save or update user's forum topic"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO user_topics (tg_user_id, topic_id, topic_name, created_at) VALUES (?, ?, ?, ?)",
+            (tg_user_id, topic_id, topic_name, datetime.utcnow().isoformat())
+        )
+        await db.commit()
+
+async def get_user_topic(tg_user_id):
+    """Get user's forum topic ID"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute("SELECT topic_id FROM user_topics WHERE tg_user_id = ?", (tg_user_id,))
+        row = await cur.fetchone()
+        return row[0] if row else None
+
+async def get_user_by_topic(topic_id):
+    """Get user ID by forum topic ID"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute("SELECT tg_user_id FROM user_topics WHERE topic_id = ?", (topic_id,))
+        row = await cur.fetchone()
+        return row[0] if row else None

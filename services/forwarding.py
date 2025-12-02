@@ -4,11 +4,18 @@ from aiogram import Bot
 from aiogram.types import Message
 import logging
 
+# Simple in-process cache for bot link
+_BOT_LINK: Optional[str] = None
+
 async def get_bot_link(bot: Bot) -> str:
     """Get the bot's Telegram link with caching"""
+    global _BOT_LINK
+    if _BOT_LINK:
+        return _BOT_LINK
     try:
         bot_info = await bot.get_me()
-        return f"https://t.me/{bot_info.username}" if bot_info.username else ""
+        _BOT_LINK = f"https://t.me/{bot_info.username}" if bot_info.username else ""
+        return _BOT_LINK
     except Exception as e:
         logging.exception("Failed to get bot link")
         return ""

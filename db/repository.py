@@ -25,6 +25,24 @@ async def init_db():
                 FOREIGN KEY (tg_user_id) REFERENCES users(tg_user_id)
             )
         ''')
+        # Deduplicate invite_links by tg_user_id (keep the newest row)
+        try:
+            await conn.execute('''
+                DELETE FROM invite_links
+                WHERE rowid NOT IN (
+                    SELECT MAX(rowid) FROM invite_links GROUP BY tg_user_id
+                )
+            ''')
+        except Exception as e:
+            logging.debug(f"Dedup invite_links skipped/failed: {e}")
+        # Add unique index to enforce one link per user
+        try:
+            await conn.execute('''
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_invite_links_user ON invite_links(tg_user_id)
+            ''')
+        except Exception as e:
+            logging.warning(f"Could not create unique index on invite_links(tg_user_id): {e}")
+
         # Join events table
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS join_events (
@@ -35,6 +53,24 @@ async def init_db():
                 FOREIGN KEY (invite_link) REFERENCES invite_links(invite_link)
             )
         ''')
+        # Deduplicate join_events (keep the newest row per pair)
+        try:
+            await conn.execute('''
+                DELETE FROM join_events
+                WHERE rowid NOT IN (
+                    SELECT MAX(rowid) FROM join_events GROUP BY invite_link, joined_user_id
+                )
+            ''')
+        except Exception as e:
+            logging.debug(f"Dedup join_events skipped/failed: {e}")
+        # Prevent duplicate join rows per (invite_link, user)
+        try:
+            await conn.execute('''
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_join_events_unique ON join_events(invite_link, joined_user_id)
+            ''')
+        except Exception as e:
+            logging.warning(f"Could not create unique index on join_events(invite_link, joined_user_id): {e}")
+
         # User topics table
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS user_topics (
@@ -63,7 +99,11 @@ async def init_db():
 async def ensure_user(tg_user_id: int, username: Optional[str], first_name: Optional[str]):
     async with aiosqlite.connect(DB_PATH) as conn:
         await conn.execute('''
-            INSERT OR IGNORE INTO users (tg_user_id, username, first_name) VALUES (?, ?, ?)
+            INSERT INTO users (tg_user_id, username, first_name)
+            VALUES (?, ?, ?)
+            ON CONFLICT(tg_user_id) DO UPDATE SET
+                username=excluded.username,
+                first_name=excluded.first_name
         ''', (tg_user_id, username, first_name))
         await conn.commit()
 
@@ -75,7 +115,8 @@ async def get_invite_by_user(tg_user_id: int) -> Optional[str]:
 
 async def save_invite_link(invite_link: str, tg_user_id: int):
     async with aiosqlite.connect(DB_PATH) as conn:
-        await conn.execute('INSERT OR REPLACE INTO invite_links (invite_link, tg_user_id, active) VALUES (?, ?, 1)', (invite_link, tg_user_id))
+        # Do not replace existing mapping to preserve a stable per-user link
+        await conn.execute('INSERT OR IGNORE INTO invite_links (invite_link, tg_user_id, active) VALUES (?, ?, 1)', (invite_link, tg_user_id))
         await conn.commit()
 
 async def get_user_join_count(tg_user_id: int) -> int:
@@ -120,7 +161,8 @@ async def get_invite_by_link(invite_link: str) -> Optional[str]:
 
 async def record_join(invite_link: str, joined_user_id: int):
     async with aiosqlite.connect(DB_PATH) as conn:
-        await conn.execute('INSERT INTO join_events (invite_link, joined_user_id) VALUES (?, ?)', (invite_link, joined_user_id))
+        # Ignore duplicates if already recorded
+        await conn.execute('INSERT OR IGNORE INTO join_events (invite_link, joined_user_id) VALUES (?, ?)', (invite_link, joined_user_id))
         await conn.commit()
 
 async def get_user_topic(tg_user_id: int) -> Optional[int]:
@@ -131,7 +173,14 @@ async def get_user_topic(tg_user_id: int) -> Optional[int]:
 
 async def save_user_topic(tg_user_id: int, topic_id: int, topic_name: str):
     async with aiosqlite.connect(DB_PATH) as conn:
-        await conn.execute('INSERT INTO user_topics (tg_user_id, topic_id, topic_name) VALUES (?, ?, ?)', (tg_user_id, topic_id, topic_name))
+        # Use UPSERT to prevent duplicate rows per user and update mapping if needed
+        await conn.execute('''
+            INSERT INTO user_topics (tg_user_id, topic_id, topic_name)
+            VALUES (?, ?, ?)
+            ON CONFLICT(tg_user_id) DO UPDATE SET
+                topic_id=excluded.topic_id,
+                topic_name=excluded.topic_name
+        ''' , (tg_user_id, topic_id, topic_name))
         await conn.commit()
 
 async def get_user_by_topic(topic_id: int) -> Optional[int]:

@@ -1,4 +1,4 @@
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 
 def campaign_keyboard(share_url: str, bot_link: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardMarkup(
@@ -15,3 +15,14 @@ def campaign_keyboard(share_url: str, bot_link: str) -> InlineKeyboardMarkup:
         ]
     )
     return kb
+
+# Persistent chat menu (always visible at bottom, one tap away)
+def main_menu_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Share to Group"), KeyboardButton(text="My Stats")],
+            [KeyboardButton(text="Contact Support"), KeyboardButton(text="Submit Screenshot")]
+        ],
+        resize_keyboard=True,
+        input_field_placeholder="Write a message..."
+    )

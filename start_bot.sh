@@ -1,6 +1,7 @@
 #!/bin/bash
 # Script to start the Marketing Campaign Bot
 
+set -euo pipefail
 cd "$(dirname "$0")"
 
 echo "🚀 Starting Marketing Campaign Bot..."
@@ -18,6 +19,6 @@ if ! command -v python3 &> /dev/null; then
     exit 1
 fi
 
-# Start the bot
-python3 bot.py
+# Start the bot (uses modular main.py)
+exec python3 main.py
 
